@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BEAT DROP — 4키 리듬게임</title>
+<style>
+:root{color-scheme:dark;--bg:#080d1b;--panel:#111a2e;--line:#2a3b5c;--muted:#a8b7d0}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% 0,#17264a 0,var(--bg) 65%);color:#f0f5ff;font:16px system-ui,-apple-system,sans-serif;min-height:100vh}
+main{max-width:780px;margin:auto;padding:18px 14px 28px}.top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.logo{font-size:23px;font-weight:950;letter-spacing:1px}.logo span{color:#53d9ff}.muted{color:var(--muted);font-size:12px}
+.panel{background:#10192c;border:1px solid var(--line);border-radius:14px;padding:13px;margin-bottom:12px}
+.upload{display:block;border:1px dashed #6682ad;border-radius:11px;padding:15px;text-align:center;cursor:pointer;background:#0b1426}
+.upload input{display:block;width:100%;margin-top:10px;color:#dce8ff;font-size:14px}
+.file{overflow-wrap:anywhere;color:#b5eaff;font-size:13px;margin-top:8px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}.btn{flex:1;min-width:100px;padding:11px 12px;border-radius:10px;border:1px solid #405779;background:#17233b;color:#fff;font-weight:700;cursor:pointer}
+.btn.primary{background:linear-gradient(110deg,#7048f5,#168de9);border:0}.btn:disabled{opacity:.45;cursor:not-allowed}
+.status{font-size:12px;color:#afc0db;line-height:1.6;min-height:20px;margin-top:9px}.meter{height:4px;background:#202d48;border-radius:8px;overflow:hidden;margin-top:8px}.progress{height:100%;width:0;background:linear-gradient(90deg,#a66bff,#40dcff)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}.stat{background:#111c31;border:1px solid #293c5c;padding:9px 4px;border-radius:10px;text-align:center}.stat small{display:block;color:#9aacc9;font-size:11px}.stat strong{display:block;font-size:19px;margin-top:3px}
+#stage{position:relative;height:min(58vh,520px);min-height:340px;border-radius:13px;overflow:hidden;background:#091225;border:1px solid #263c61;touch-action:manipulation}canvas{width:100%;height:100%;display:block}
+.keys{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:9px}.key{height:58px;border-radius:10px;background:#111d32;border:1px solid #354b70;color:white;font-size:20px;font-weight:900;touch-action:none;user-select:none}
+.key:nth-child(1){box-shadow:inset 0 -3px #27baff;color:#6bd5ff}.key:nth-child(2){box-shadow:inset 0 -3px #c15cff;color:#e0a3ff}.key:nth-child(3){box-shadow:inset 0 -3px #30e4bc;color:#73f5d9}.key:nth-child(4){box-shadow:inset 0 -3px #ffc34f;color:#ffda84}
+.help{font-size:12px;line-height:1.8;color:#a7b7d2;margin-top:12px}audio{width:100%;margin-top:10px;height:36px}
+@media(max-width:420px){main{padding:12px 9px 22px}.logo{font-size:20px}#stage{min-height:330px;height:48vh}}
+</style>
+</head>
+<body>
+<main>
+<div class="top"><div><div class="logo">BEAT <span>DROP</span></div><div class="muted">FOUR LANES · FEEL THE BEAT</div></div><div id="mode" class="muted">곡을 선택해 시작하세요</div></div>
+<section class="panel">
+<div class="upload"><strong>♫ 노래 파일 선택</strong><div class="muted">파일 앱에서 MP3·WAV·M4A 등을 선택하세요.</div><input id="audioFile" type="file" aria-label="노래 파일 선택"><div id="filename" class="file">아직 선택한 파일이 없습니다</div></div>
+<div class="controls"><button id="analyze" class="btn">♫ 박자 분석</button><button id="start" class="btn primary" disabled>▶ 게임 시작</button><button id="pause" class="btn" disabled>Ⅱ 일시정지</button></div>
+<div class="meter"><div id="progress" class="progress"></div></div><div id="status" class="status" aria-live="polite">파일을 선택한 다음 박자 분석을 눌러주세요.</div>
+<audio id="audio" controls preload="metadata"></audio>
+</section>
+<div class="stats"><div class="stat"><small>SCORE</small><strong id="score">0</strong></div><div class="stat"><small>COMBO</small><strong id="combo">0</strong></div><div class="stat"><small>ACCURACY</small><strong id="acc">100%</strong></div></div>
+<div id="stage"><canvas id="canvas" aria-label="4레인 리듬게임"></canvas></div>
+<div class="keys"><button class="key" data-lane="0">A</button><button class="key" data-lane="1">S</button><button class="key" data-lane="2">K</button><button class="key" data-lane="3">L</button></div>
+<div class="help">키보드: <b>A · S · K · L</b> / 모바일: 아래 레인 버튼을 누르세요.<br>일반 타일은 판정선에 도달할 때 누르고, 홀드 타일은 시작할 때 누른 뒤 끝날 때까지 유지하세요.<br>판정: PERFECT ±90ms · GOOD ±170ms · 그 외 MISS</div>
+</main>
+<script>
+(() => {
+const $=id=>document.getElementById(id), audio=$('audio'), canvas=$('canvas'), ctx=canvas.getContext('2d');
+const colors=['#38baff','#c76aff','#36e7be','#ffc654'];
+let file=null, objectURL=null, notes=[], ready=false, running=false, paused=false, raf=0;
+let score=0,combo=0,maxCombo=0,judged=0,perfect=0,good=0,misses=0,pressed=new Set(),holds={},feedback='',feedbackUntil=0,beat=.5,duration=0;
+function say(t){$('status').textContent=t}
+function stats(){$('score').textContent=score.toLocaleString();$('combo').textContent=combo;$('acc').textContent=(judged?((perfect+good*.65)/judged*100):100).toFixed(1)+'%'}
+function reset(){score=combo=maxCombo=judged=perfect=good=misses=0;pressed.clear();holds={};stats()}
+function judge(s){feedback=s;feedbackUntil=performance.now()+600}
+function resize(){let r=canvas.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);canvas.width=Math.max(1,Math.floor(r.width*d));canvas.height=Math.max(1,Math.floor(r.height*d));ctx.setTransform(d,0,0,d,0,0);draw()}
+function buildNotes(buffer){
+ const sr=buffer.sampleRate,len=buffer.length,ch=buffer.numberOfChannels,hop=Math.max(256,Math.floor(sr*.01)),count=Math.floor(len/hop);
+ const energy=new Float32Array(count);
+ for(let i=0;i<count;i++){let sum=0,n=0,a0=i*hop,a1=Math.min(len,a0+hop);for(let c=0;c<ch;c++){const a=buffer.getChannelData(c);for(let j=a0;j<a1;j+=4){sum+=a[j]*a[j];n++}}energy[i]=Math.sqrt(sum/Math.max(1,n))}
+ const flux=new Float32Array(count);for(let i=2;i<count;i++)flux[i]=Math.max(0,energy[i]-(energy[i-1]*.65+energy[i-2]*.35));
+ const env=new Float32Array(count);for(let i=2;i<count-2;i++)env[i]=(flux[i-2]+2*flux[i-1]+3*flux[i]+2*flux[i+1]+flux[i+2])/9;
+ let mean=0;for(const v of env)mean+=v;mean/=Math.max(1,count);
+ let peaks=[];for(let i=4;i<count-4;i++)if(env[i]>mean*1.15&&env[i]>=env[i-1]&&env[i]>env[i+1]&&env[i]>=env[i-2]&&env[i]>env[i+2])peaks.push(i*.01);
+ let intervals=[];for(let i=1;i<peaks.length;i++){let d=peaks[i]-peaks[i-1];if(d>.28&&d<1.05)intervals.push(d)}
+ let bpm=120;if(intervals.length){intervals.sort((a,b)=>a-b);const med=intervals[Math.floor(intervals.length/2)];const opts=[med,med/2,med*2].filter(v=>60/v>=70&&60/v<=180);if(opts.length){opts.sort((a,b)=>Math.abs(60/a-120)-Math.abs(60/b-120));bpm=60/opts[0]}}
+ beat=60/bpm;const out=[],step=beat/2,offset=peaks.length?peaks[0]%step:0;let idx=0,lastLane=-1;
+ for(let t=Math.max(.35,offset);t<buffer.duration-.12;t+=step){const onset=peaks.some(p=>Math.abs(p-t)<.065);if(onset||idx%2===0){let lane=(idx*3+Math.floor(idx/3))%4;if(lane===lastLane)lane=(lane+1)%4;const chord=(idx%7===3&&onset),hold=(idx%12===8&&t+beat*1.6<buffer.duration-.1);out.push({t,lane,hold,dur:hold?beat*1.5:0,hit:false,miss:false,held:false,startedHold:false});if(chord)out.push({t,lane:(lane+2)%4,hold:false,dur:0,hit:false,miss:false,held:false,startedHold:false});lastLane=lane;idx++}}
+ if(out.length<8)for(let t=.5;t<buffer.duration-.5;t+=beat)out.push({t,lane:(out.length*3)%4,hold:false,dur:0,hit:false,miss:false,held:false,startedHold:false});return out.sort((a,b)=>a.t-b.t||a.lane-b.lane)
+}
+$('audioFile').addEventListener('change',e=>{
+ const f=e.target.files&&e.target.files[0];if(!f)return;
+ if(!f.type.startsWith('audio/')&&!/\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(f.name)){say('오디오 파일을 선택해 주세요.');return}
+ file=f;ready=false;running=false;paused=false;audio.pause();cancelAnimationFrame(raf);
+ if(objectURL)URL.revokeObjectURL(objectURL);objectURL=URL.createObjectURL(f);audio.src=objectURL;audio.load();
+ $('filename').textContent=f.name+' · '+(f.size/1024/1024).toFixed(1)+' MB';$('start').disabled=true;$('pause').disabled=true;$('progress').style.width='0%';$('mode').textContent='READY';notes=[];say('파일을 불러왔어요. 「박자 분석」을 눌러주세요.');draw()
+});
+$('analyze').addEventListener('click',async()=>{
+ if(!file){say('먼저 노래 파일을 선택하세요.');return}
+ $('analyze').disabled=true;$('start').disabled=true;$('progress').style.width='10%';say('오디오를 읽고 박자를 분석하는 중…');
+ try{
+   const AC=window.AudioContext||window.webkitAudioContext;if(!AC)throw Error('이 브라우저는 오디오 분석을 지원하지 않습니다.');
+   const ac=new AC();await ac.resume();const buf=await file.arrayBuffer();$('progress').style.width='35%';const decoded=await ac.decodeAudioData(buf);if(decoded.duration>600)throw Error('10분 이하의 파일을 사용해 주세요.');
+   $('progress').style.width='65%';await new Promise(r=>setTimeout(r,30));notes=buildNotes(decoded);duration=decoded.duration;await ac.close();
+   ready=true;reset();$('progress').style.width='100%';$('start').disabled=false;$('mode').textContent='BPM ~ '+Math.round(60/beat);say('분석 완료 · 약 '+Math.round(60/beat)+' BPM · '+notes.length+'개 타일. 게임 시작을 누르세요.');draw()
+ }catch(err){say('분석 실패: '+(err.message||'파일 형식 또는 메모리를 확인해 주세요.'));}finally{$('analyze').disabled=false}
+});
+$('start').addEventListener('click',async()=>{
+ if(!ready)return;cancelAnimationFrame(raf);audio.pause();audio.currentTime=0;reset();notes.forEach(n=>{n.hit=n.miss=n.held=n.startedHold=false});
+ try{await audio.play()}catch(e){say('오디오를 재생할 수 없습니다. 파일 형식을 확인해 주세요.');return}
+ running=true;paused=false;$('start').disabled=true;$('pause').disabled=false;$('pause').textContent='Ⅱ 일시정지';$('mode').textContent='PLAYING';say('시작! 타일이 판정선에 도달할 때 키를 누르세요.');loop()
+});
+$('pause').addEventListener('click',()=>{
+ if(!ready)return;
+ if(running){running=false;paused=true;audio.pause();cancelAnimationFrame(raf);$('pause').textContent='▶ 계속';$('mode').textContent='PAUSED';say('일시정지 중')}
+ else if(paused){audio.play().then(()=>{paused=false;running=true;$('pause').textContent='Ⅱ 일시정지';$('mode').textContent='PLAYING';loop()}).catch(()=>say('재생을 다시 시작할 수 없습니다.'))}
+});
+function press(lane){
+ if(!running)return;pressed.add(lane);const t=audio.currentTime;
+ let cand=notes.filter(n=>n.lane===lane&&!n.hit&&!n.miss&&Math.abs(n.t-t)<.18).sort((a,b)=>Math.abs(a.t-t)-Math.abs(b.t-t))[0];
+ if(!cand)return;
+ let d=Math.abs(cand.t-t);
+ if(cand.hold){
+   if(d<=.14){cand.held=true;cand.startedHold=true;holds[lane]=cand;judge(d<=.065?'PERFECT':'HOLD!');if(d<=.065){score+=1000;perfect++}else{score+=600;good++}judged++;combo++;maxCombo=Math.max(combo,maxCombo);stats()}
+   return
+ }
+ if(d<=.065){cand.hit=true;score+=1000;perfect++;judged++;combo++;maxCombo=Math.max(combo,maxCombo);judge('PERFECT')}
+ else if(d<=.14){cand.hit=true;score+=600;good++;judged++;combo++;maxCombo=Math.max(combo,maxCombo);judge('GOOD')}
+ stats()
+}
+function release(lane){
+ pressed.delete(lane);const n=holds[lane];if(!n)return;
+ const t=audio.currentTime;if(t>=n.t+n.dur-.13){n.hit=true;score+=1000;perfect++;judged++;combo++;maxCombo=Math.max(combo,maxCombo);judge('HOLD CLEAR')}
+ else{n.miss=true;misses++;judged++;combo=0;judge('MISS')}
+ delete holds[lane];stats()
+}
+const keys=['a','s','k','l'];
+window.addEventListener('keydown',e=>{let l=keys.indexOf(e.key.toLowerCase());if(l>=0&&!e.repeat){e.preventDefault();press(l)}if(e.code==='Space'&&ready){e.preventDefault();$('pause').click()}});
+window.addEventListener('keyup',e=>{let l=keys.indexOf(e.key.toLowerCase());if(l>=0)release(l)});
+document.querySelectorAll('.key').forEach(b=>{let l=+b.dataset.lane;b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture?.(e.pointerId);press(l)});b.addEventListener('pointerup',e=>{e.preventDefault();release(l)});b.addEventListener('pointercancel',()=>release(l));});
+function draw(){
+ let w=canvas.clientWidth||320,h=canvas.clientHeight||380;ctx.clearRect(0,0,w,h);ctx.fillStyle='#091225';ctx.fillRect(0,0,w,h);let lw=w/4,hy=h*.82;
+ for(let i=0;i<4;i++){ctx.fillStyle=i%2?'#101a31':'#0c172c';ctx.fillRect(i*lw,0,lw,h);ctx.strokeStyle=colors[i];ctx.globalAlpha=.3;ctx.beginPath();ctx.moveTo(i*lw+1,0);ctx.lineTo(i*lw+1,h);ctx.stroke();ctx.globalAlpha=1}
+ ctx.strokeStyle='#9cadd0';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,hy);ctx.lineTo(w,hy);ctx.stroke();
+ if(ready){let now=audio.currentTime;for(let n of notes){if(n.hit||n.miss)continue;let y=hy-(n.t-now)/1.65*(hy-8);if(y<-200||y>h+100)continue;let x=n.lane*lw+lw*.13,nw=lw*.74;
+ if(n.hold){let th=Math.min(190,n.dur/1.65*(hy-8));ctx.globalAlpha=.42;ctx.fillStyle=colors[n.lane];ctx.fillRect(x+nw*.27,y-th+4,nw*.46,th);ctx.globalAlpha=1}
+ ctx.shadowBlur=12;ctx.shadowColor=colors[n.lane];ctx.fillStyle=colors[n.lane];ctx.beginPath();ctx.roundRect(x,y-7,nw,14,5);ctx.fill();ctx.shadowBlur=0;if(n.hold){ctx.strokeStyle='#fff';ctx.lineWidth=1;ctx.strokeRect(x,y-7,nw,14)}
+ }}
+ for(let i=0;i<4;i++){let x=i*lw+5;ctx.fillStyle=pressed.has(i)?colors[i]:'#172542';ctx.strokeStyle=colors[i];ctx.lineWidth=2;ctx.beginPath();ctx.roundRect(x,hy+9,lw-10,h-hy-19,8);ctx.fill();ctx.stroke();ctx.fillStyle=pressed.has(i)?'#071020':'#eaf2ff';ctx.textAlign='center';ctx.font='bold 19px system-ui';ctx.fillText(keys[i].toUpperCase(),x+(lw-10)/2,hy+43)}
+ if(feedback&&performance.now()<feedbackUntil){ctx.textAlign='center';ctx.font='900 23px system-ui';ctx.fillStyle=feedback.includes('MISS')?'#ff687d':feedback.includes('GOOD')?'#ffdb75':'#b8f8ff';ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=12;ctx.fillText(feedback,w/2,h*.28);ctx.shadowBlur=0}
+ if(!running&&!paused){ctx.fillStyle='#c1cde4';ctx.textAlign='center';ctx.font='13px system-ui';ctx.fillText(ready?'게임 시작을 눌러주세요':'노래를 선택하고 분석하세요',w/2,h*.43)}
+}
+function loop(){
+ if(!running)return;let t=audio.currentTime;
+ for(let n of notes){if(n.hit||n.miss)continue;
+  if(n.hold&&n.startedHold&&n.held&&t>=n.t+n.dur){n.hit=true;score+=400;perfect++;judged++;combo++;maxCombo=Math.max(combo,maxCombo);delete holds[n.lane];judge('HOLD CLEAR');stats();continue}
+  if(t>n.t+.16){n.miss=true;misses++;judged++;combo=0;delete holds[n.lane];judge('MISS');stats()}
+ }
+ $('progress').style.width=(duration?Math.min(100,t/duration*100):0)+'%';draw();
+ if(t>=duration||audio.ended){running=false;paused=false;$('pause').disabled=true;$('start').disabled=!ready;$('start').textContent='↻ 다시 플레이';$('mode').textContent='RESULT';say('플레이 종료 · 점수 '+score.toLocaleString()+' · 최고 콤보 '+maxCombo+' · 정확도 '+$('acc').textContent);draw();return}
+ raf=requestAnimationFrame(loop)
+}
+window.addEventListener('resize',resize);resize();
+})();
+</script>
+</body>
+</html>
